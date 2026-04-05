@@ -30,6 +30,11 @@ PHASE_LABELS = {
 class AgentLogger:
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
+        self._dashboard = None
+
+    def set_dashboard(self, dashboard):
+        """Web UIダッシュボードへのブリッジを設定"""
+        self._dashboard = dashboard
 
     def log(self, phase: str, message: str, detail: str | None = None):
         icon = PHASE_ICONS.get(phase, "•")
@@ -44,6 +49,10 @@ class AgentLogger:
         if detail and self.verbose:
             for line in detail.split("\n"):
                 print(f"    {line}", flush=True)
+
+        # Forward to dashboard
+        if self._dashboard:
+            self._dashboard.add_log(phase, message)
 
     def observe(self, msg: str, detail: str | None = None):
         self.log("observe", msg, detail)

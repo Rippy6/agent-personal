@@ -6,12 +6,15 @@
   python main.py -g "このリポジトリを分析して報告して"   # 自律モード
   python main.py -i                                       # 対話モード
   python main.py                                          # ゴールなしで自律探索
+  python main.py --brain ollama                           # ローカルLLMで起動
 """
 
 import argparse
 import json
 import os
 import sys
+
+VERSION = "0.2.0"
 
 
 def load_config() -> dict:
@@ -26,26 +29,59 @@ def load_config() -> dict:
     return {}
 
 
-def create_brain(config: dict | None = None):
-    """APIキーの有無でBrainを自動選択"""
+def create_brain(brain_type: str = "auto", config: dict | None = None):
+    """Brain を作成。brain_type で明示的に指定可能。"""
     config = config or {}
-    api_key = os.environ.get("ANTHROPIC_API_KEY") or config.get("api_key")
-    if api_key:
+
+    if brain_type == "auto":
+        # 環境変数から自動検出
+        if os.environ.get("ANTHROPIC_API_KEY") or config.get("api_key"):
+            brain_type = "claude"
+        elif os.environ.get("OPENAI_API_KEY"):
+            brain_type = "openai"
+        else:
+            brain_type = "mock"
+
+    if brain_type == "claude":
+        api_key = os.environ.get("ANTHROPIC_API_KEY") or config.get("api_key", "")
+        if not api_key:
+            print("⚠️  ANTHROPIC_API_KEY が設定されていません。デモモードで起動します。")
+            from agent.brain.mock import MockBrain
+            return MockBrain(), "Mock (APIキー未設定)"
         try:
             from agent.brain.claude import ClaudeBrain
-            brain = ClaudeBrain(api_key=api_key)
-            brain_name = "Claude API"
+            return ClaudeBrain(api_key=api_key), "Claude API"
         except ImportError:
-            print("⚠️  anthropicパッケージが未インストール。モックモードで起動します。")
-            print("   インストール: pip install 'agent-personal[claude]'")
+            print("⚠️  anthropicパッケージが未インストール。デモモードで起動します。")
+            print("   インストール: pip install anthropic")
             from agent.brain.mock import MockBrain
-            brain = MockBrain()
-            brain_name = "Mock (Claude未インストール)"
-    else:
+            return MockBrain(), "Mock (Claude未インストール)"
+
+    elif brain_type == "openai":
+        api_key = os.environ.get("OPENAI_API_KEY") or config.get("openai_api_key", "")
+        if not api_key:
+            print("⚠️  OPENAI_API_KEY が設定されていません。デモモードで起動します。")
+            from agent.brain.mock import MockBrain
+            return MockBrain(), "Mock (APIキー未設定)"
+        try:
+            from agent.brain.openai import OpenAIBrain
+            model = config.get("openai_model", "gpt-4o")
+            return OpenAIBrain(api_key=api_key, model=model), f"OpenAI {model}"
+        except ImportError:
+            print("⚠️  openaiパッケージが未インストール。デモモードで起動します。")
+            print("   インストール: pip install openai")
+            from agent.brain.mock import MockBrain
+            return MockBrain(), "Mock (OpenAI未インストール)"
+
+    elif brain_type == "ollama":
+        from agent.brain.ollama import OllamaBrain
+        model = config.get("ollama_model", "llama3.1")
+        base_url = config.get("ollama_url", "http://localhost:11434")
+        return OllamaBrain(model=model, base_url=base_url), f"Ollama ({model})"
+
+    else:  # mock
         from agent.brain.mock import MockBrain
-        brain = MockBrain()
-        brain_name = "Mock (デモ)"
-    return brain, brain_name
+        return MockBrain(), "Mock (デモ)"
 
 
 def create_tools(dry_run: bool = False):
@@ -61,48 +97,32 @@ def main():
         epilog="""
 例:
   python main.py -g "ファイルを分析して報告して"
-  python main.py -g "READMEを作成して" --max-iterations 50
   python main.py -i
-  python main.py -v
+  python main.py --brain ollama
+  python main.py --brain openai -g "プロジェクトを改善して"
         """,
     )
+    parser.add_argument("-g", "--goal", help="エージェントに与えるゴール")
+    parser.add_argument("-i", "--interactive", action="store_true", help="対話モード")
     parser.add_argument(
-        "-g", "--goal",
-        help="エージェントに与えるゴール",
+        "-b", "--brain",
+        choices=["auto", "mock", "claude", "openai", "ollama"],
+        default="auto",
+        help="思考エンジンを指定 (デフォルト: auto = 環境変数から自動検出)",
     )
-    parser.add_argument(
-        "-i", "--interactive",
-        action="store_true",
-        help="対話モード（チャットしながら指示）",
-    )
-    parser.add_argument(
-        "-n", "--max-iterations",
-        type=int,
-        default=100,
-        help="最大ループ回数 (デフォルト: 100, 0=無制限)",
-    )
-    parser.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        help="詳細な内部状態を表示",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="シェルコマンドを実行せずに表示だけ",
-    )
-    parser.add_argument(
-        "-d", "--delay",
-        type=float,
-        default=1.0,
-        help="ループ間の待機秒数 (デフォルト: 1.0)",
-    )
+    parser.add_argument("-n", "--max-iterations", type=int, default=0,
+                        help="最大ループ回数 (デフォルト: 0=無制限)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="詳細表示")
+    parser.add_argument("--dry-run", action="store_true", help="コマンド実行せず表示だけ")
+    parser.add_argument("-d", "--delay", type=float, default=1.0, help="ループ間隔（秒）")
+    parser.add_argument("--dashboard", action="store_true", help="Web UIダッシュボードを起動")
+    parser.add_argument("--port", type=int, default=8080, help="ダッシュボードのポート (デフォルト: 8080)")
 
     args = parser.parse_args()
 
-    # Load saved config as defaults
+    # Load saved config
     config = load_config()
-    if args.max_iterations == 100 and config.get("max_iterations"):
+    if args.max_iterations == 0 and config.get("max_iterations"):
         args.max_iterations = config["max_iterations"]
     if args.delay == 1.0 and config.get("loop_delay"):
         args.delay = config["loop_delay"]
@@ -113,39 +133,50 @@ def main():
 
     # Banner
     print("=" * 50)
-    print("  🤖 完全自律AIエージェント v0.1.0")
+    print(f"  🤖 完全自律AIエージェント v{VERSION}")
     print("  「自分で考え、判断し、行動する分身」")
     print("=" * 50)
 
     # Create components
-    brain, brain_name = create_brain(config)
+    brain, brain_name = create_brain(args.brain, config)
     tools = create_tools(dry_run=args.dry_run)
 
     from agent.core import Agent
     from agent.utils.logger import AgentLogger
 
-    logger = AgentLogger(verbose=args.verbose)
+    # Dashboard setup
+    dashboard = None
+    if args.dashboard:
+        from agent.web.server import start_dashboard, dashboard_state
+        start_dashboard(port=args.port)
+        dashboard = dashboard_state
 
     agent = Agent(
         brain=brain,
         tools=tools,
-        logger=logger,
+        logger=AgentLogger(verbose=args.verbose),
         loop_delay=args.delay,
         max_iterations=args.max_iterations,
+        dashboard=dashboard,
     )
 
+    mode = "対話" if args.interactive else ("自律" if args.goal else "探索")
     print(f"  Brain: {brain_name}")
-    print(f"  モード: {'対話' if args.interactive else '自律'}")
+    print(f"  モード: {mode}")
+    if args.max_iterations > 0:
+        print(f"  最大ループ: {args.max_iterations}回")
+    else:
+        print("  最大ループ: 無制限 (Ctrl+Cで停止)")
     if args.dry_run:
-        print("  ⚠️  dry-runモード（シェルコマンドは実行されません）")
+        print("  ⚠️  dry-runモード")
+    if args.dashboard:
+        print(f"  🌐 ダッシュボード: http://localhost:{args.port}")
     print("=" * 50)
     print()
 
-    # Add initial goal if provided
     if args.goal:
         agent.add_goal(args.goal)
 
-    # Run
     if args.interactive:
         agent.run_interactive()
     else:
