@@ -9,13 +9,27 @@
 """
 
 import argparse
+import json
 import os
 import sys
 
 
-def create_brain():
+def load_config() -> dict:
+    """data/config.json があればデフォルト値として読み込む"""
+    config_path = os.path.join("data", "config.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def create_brain(config: dict | None = None):
     """APIキーの有無でBrainを自動選択"""
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    config = config or {}
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or config.get("api_key")
     if api_key:
         try:
             from agent.brain.claude import ClaudeBrain
@@ -86,6 +100,17 @@ def main():
 
     args = parser.parse_args()
 
+    # Load saved config as defaults
+    config = load_config()
+    if args.max_iterations == 100 and config.get("max_iterations"):
+        args.max_iterations = config["max_iterations"]
+    if args.delay == 1.0 and config.get("loop_delay"):
+        args.delay = config["loop_delay"]
+    if not args.verbose and config.get("verbose"):
+        args.verbose = True
+    if not args.dry_run and config.get("dry_run"):
+        args.dry_run = True
+
     # Banner
     print("=" * 50)
     print("  🤖 完全自律AIエージェント v0.1.0")
@@ -93,7 +118,7 @@ def main():
     print("=" * 50)
 
     # Create components
-    brain, brain_name = create_brain()
+    brain, brain_name = create_brain(config)
     tools = create_tools(dry_run=args.dry_run)
 
     from agent.core import Agent
