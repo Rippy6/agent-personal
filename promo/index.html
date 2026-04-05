@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>完全自律AIエージェント</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;700;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #13131a;
+    --card: #1a1a25;
+    --accent: #6c5ce7;
+    --accent2: #00cec9;
+    --accent3: #fd79a8;
+    --text: #e8e8f0;
+    --dim: #8888aa;
+  }
+
+  body {
+    font-family: 'Noto Sans JP', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  /* === SLIDE CONTAINER === */
+  .slides {
+    height: 100vh;
+    width: 100vw;
+    position: relative;
+  }
+
+  .slide {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 60px;
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+    pointer-events: none;
+  }
+
+  .slide.active {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+
+  /* === TYPOGRAPHY === */
+  h1 {
+    font-size: 3.5rem;
+    font-weight: 900;
+    line-height: 1.3;
+    margin-bottom: 24px;
+    text-align: center;
+  }
+
+  h2 {
+    font-size: 2.2rem;
+    font-weight: 700;
+    margin-bottom: 20px;
+    text-align: center;
+  }
+
+  .subtitle {
+    font-size: 1.4rem;
+    color: var(--dim);
+    font-weight: 300;
+    text-align: center;
+    max-width: 700px;
+    line-height: 1.8;
+  }
+
+  .highlight { color: var(--accent); }
+  .highlight2 { color: var(--accent2); }
+  .highlight3 { color: var(--accent3); }
+
+  /* === HERO SLIDE === */
+  .hero-icon {
+    font-size: 6rem;
+    margin-bottom: 30px;
+    animation: float 3s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-15px); }
+  }
+
+  .hero-tagline {
+    font-size: 1.2rem;
+    color: var(--accent2);
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+
+  /* === COMPARISON === */
+  .comparison {
+    display: flex;
+    gap: 40px;
+    margin-top: 40px;
+    max-width: 900px;
+  }
+
+  .compare-box {
+    flex: 1;
+    background: var(--card);
+    border-radius: 20px;
+    padding: 36px;
+    text-align: center;
+    border: 2px solid transparent;
+    transition: transform 0.3s, border-color 0.3s;
+  }
+
+  .compare-box:hover {
+    transform: translateY(-5px);
+  }
+
+  .compare-box.old {
+    border-color: #444;
+    opacity: 0.6;
+  }
+
+  .compare-box.new {
+    border-color: var(--accent);
+    box-shadow: 0 0 40px rgba(108, 92, 231, 0.15);
+  }
+
+  .compare-icon { font-size: 3rem; margin-bottom: 16px; }
+  .compare-title {
+    font-size: 1.3rem;
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+  .compare-desc {
+    font-size: 1rem;
+    color: var(--dim);
+    line-height: 1.8;
+  }
+
+  /* === LOOP DIAGRAM === */
+  .loop-container {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 40px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .loop-step {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 24px 20px;
+    text-align: center;
+    min-width: 120px;
+    border: 2px solid var(--surface);
+    opacity: 0;
+    animation: fadeInStep 0.5s ease forwards;
+  }
+
+  .loop-step .step-icon { font-size: 2rem; margin-bottom: 8px; }
+  .loop-step .step-name { font-size: 0.95rem; font-weight: 700; }
+  .loop-step .step-desc { font-size: 0.8rem; color: var(--dim); margin-top: 6px; }
+
+  .loop-arrow {
+    font-size: 1.5rem;
+    color: var(--accent);
+    opacity: 0;
+    animation: fadeInStep 0.5s ease forwards;
+  }
+
+  .slide.active .loop-step:nth-child(1) { animation-delay: 0.1s; }
+  .slide.active .loop-arrow:nth-child(2) { animation-delay: 0.2s; }
+  .slide.active .loop-step:nth-child(3) { animation-delay: 0.3s; }
+  .slide.active .loop-arrow:nth-child(4) { animation-delay: 0.4s; }
+  .slide.active .loop-step:nth-child(5) { animation-delay: 0.5s; }
+  .slide.active .loop-arrow:nth-child(6) { animation-delay: 0.6s; }
+  .slide.active .loop-step:nth-child(7) { animation-delay: 0.7s; }
+  .slide.active .loop-arrow:nth-child(8) { animation-delay: 0.8s; }
+  .slide.active .loop-step:nth-child(9) { animation-delay: 0.9s; }
+
+  @keyframes fadeInStep {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* === FEATURE CARDS === */
+  .features {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    margin-top: 40px;
+    max-width: 900px;
+  }
+
+  .feature-card {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 30px;
+    text-align: center;
+    border: 1px solid #222;
+    transition: transform 0.3s, box-shadow 0.3s;
+  }
+
+  .feature-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  }
+
+  .feature-card .f-icon { font-size: 2.5rem; margin-bottom: 12px; }
+  .feature-card .f-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; }
+  .feature-card .f-desc { font-size: 0.9rem; color: var(--dim); line-height: 1.6; }
+
+  /* === TERMINAL DEMO === */
+  .terminal {
+    background: #0d1117;
+    border-radius: 16px;
+    padding: 0;
+    max-width: 750px;
+    width: 100%;
+    margin-top: 30px;
+    border: 1px solid #333;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+
+  .terminal-header {
+    background: #1c1c2e;
+    padding: 12px 16px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .terminal-dot {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+  }
+
+  .terminal-dot.red { background: #ff5f56; }
+  .terminal-dot.yellow { background: #ffbd2e; }
+  .terminal-dot.green { background: #27c93f; }
+
+  .terminal-title {
+    color: var(--dim);
+    font-size: 0.8rem;
+    margin-left: 8px;
+  }
+
+  .terminal-body {
+    padding: 20px 24px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    min-height: 280px;
+  }
+
+  .terminal-body .line {
+    opacity: 0;
+    animation: typeLine 0.3s ease forwards;
+  }
+
+  .slide.active .terminal-body .line:nth-child(1) { animation-delay: 0.3s; }
+  .slide.active .terminal-body .line:nth-child(2) { animation-delay: 0.8s; }
+  .slide.active .terminal-body .line:nth-child(3) { animation-delay: 1.3s; }
+  .slide.active .terminal-body .line:nth-child(4) { animation-delay: 1.8s; }
+  .slide.active .terminal-body .line:nth-child(5) { animation-delay: 2.3s; }
+  .slide.active .terminal-body .line:nth-child(6) { animation-delay: 2.8s; }
+  .slide.active .terminal-body .line:nth-child(7) { animation-delay: 3.3s; }
+  .slide.active .terminal-body .line:nth-child(8) { animation-delay: 3.8s; }
+
+  @keyframes typeLine {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .t-green { color: #27c93f; }
+  .t-blue { color: #6c5ce7; }
+  .t-yellow { color: #ffbd2e; }
+  .t-pink { color: #fd79a8; }
+  .t-cyan { color: #00cec9; }
+  .t-dim { color: #666; }
+
+  /* === MODE CARDS === */
+  .modes {
+    display: flex;
+    gap: 30px;
+    margin-top: 40px;
+    max-width: 900px;
+  }
+
+  .mode-card {
+    flex: 1;
+    background: var(--card);
+    border-radius: 20px;
+    padding: 36px;
+    text-align: center;
+    border: 2px solid #222;
+    transition: all 0.3s;
+  }
+
+  .mode-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-5px);
+  }
+
+  .mode-card .m-icon { font-size: 3rem; margin-bottom: 16px; }
+  .mode-card .m-title { font-size: 1.3rem; font-weight: 700; margin-bottom: 10px; }
+  .mode-card .m-desc { font-size: 0.95rem; color: var(--dim); line-height: 1.6; }
+  .mode-card code {
+    display: inline-block;
+    background: #0d1117;
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    margin-top: 12px;
+    color: var(--accent2);
+  }
+
+  /* === CTA === */
+  .cta-box {
+    background: linear-gradient(135deg, var(--accent), #a855f7);
+    border-radius: 20px;
+    padding: 50px 60px;
+    text-align: center;
+    max-width: 600px;
+    margin-top: 40px;
+  }
+
+  .cta-box h2 { color: white; margin-bottom: 16px; }
+  .cta-box p { color: rgba(255,255,255,0.8); font-size: 1.1rem; line-height: 1.6; }
+
+  .cta-code {
+    display: inline-block;
+    background: rgba(0,0,0,0.3);
+    padding: 12px 28px;
+    border-radius: 12px;
+    font-family: monospace;
+    font-size: 1.1rem;
+    color: white;
+    margin-top: 24px;
+    letter-spacing: 1px;
+  }
+
+  /* === NAVIGATION === */
+  .nav {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+    z-index: 100;
+  }
+
+  .nav-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #333;
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+
+  .nav-dot.active {
+    background: var(--accent);
+    width: 30px;
+    border-radius: 5px;
+  }
+
+  .nav-hint {
+    position: fixed;
+    bottom: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--dim);
+    font-size: 0.8rem;
+  }
+
+  /* === RESPONSIVE === */
+  @media (max-width: 768px) {
+    h1 { font-size: 2rem; }
+    h2 { font-size: 1.5rem; }
+    .slide { padding: 30px; }
+    .comparison, .modes { flex-direction: column; }
+    .features { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="slides">
+
+  <!-- SLIDE 1: HERO -->
+  <div class="slide active" data-index="0">
+    <div class="hero-icon">🤖</div>
+    <div class="hero-tagline">Autonomous AI Agent</div>
+    <h1>指示ゼロで動く、<br><span class="highlight">もう1人の人間</span></h1>
+    <p class="subtitle">
+      命令を待たない。自分で考え、判断し、行動する。<br>
+      完全自律AIエージェント。
+    </p>
+  </div>
+
+  <!-- SLIDE 2: PROBLEM -->
+  <div class="slide" data-index="1">
+    <h2>今までのAIツールとの<span class="highlight3">違い</span></h2>
+    <div class="comparison">
+      <div class="compare-box old">
+        <div class="compare-icon">🔧</div>
+        <div class="compare-title">従来のAIツール</div>
+        <div class="compare-desc">
+          命令しないと動かない<br>
+          1つのタスクで終わり<br>
+          過去のことを覚えていない<br>
+          指示が曖昧だとフリーズ
+        </div>
+      </div>
+      <div class="compare-box new">
+        <div class="compare-icon">🤖</div>
+        <div class="compare-title">この自律エージェント</div>
+        <div class="compare-desc">
+          <strong>自分で考えて動く</strong><br>
+          終わっても次を見つける<br>
+          失敗を覚えて学習する<br>
+          何も言わなくても探索を始める
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 3: HOW IT WORKS -->
+  <div class="slide" data-index="2">
+    <h2>5つのステップで<span class="highlight2">自律的に</span>動く</h2>
+    <div class="loop-container">
+      <div class="loop-step">
+        <div class="step-icon">🔍</div>
+        <div class="step-name">観察</div>
+        <div class="step-desc">環境を見る</div>
+      </div>
+      <div class="loop-arrow">→</div>
+      <div class="loop-step">
+        <div class="step-icon">💭</div>
+        <div class="step-name">思考</div>
+        <div class="step-desc">何をすべきか考える</div>
+      </div>
+      <div class="loop-arrow">→</div>
+      <div class="loop-step">
+        <div class="step-icon">📋</div>
+        <div class="step-name">計画</div>
+        <div class="step-desc">やることを分解</div>
+      </div>
+      <div class="loop-arrow">→</div>
+      <div class="loop-step">
+        <div class="step-icon">⚡</div>
+        <div class="step-name">実行</div>
+        <div class="step-desc">ツールで行動</div>
+      </div>
+      <div class="loop-arrow">→</div>
+      <div class="loop-step">
+        <div class="step-icon">📝</div>
+        <div class="step-name">振り返り</div>
+        <div class="step-desc">学んで次へ</div>
+      </div>
+    </div>
+    <p class="subtitle" style="margin-top:30px;">
+      このサイクルを<span class="highlight">自動で何度も繰り返す</span>。<br>
+      終わったら次の課題を自分で見つける。
+    </p>
+  </div>
+
+  <!-- SLIDE 4: DEMO -->
+  <div class="slide" data-index="3">
+    <h2>実際の<span class="highlight">動き</span>を見てみよう</h2>
+    <div class="terminal">
+      <div class="terminal-header">
+        <div class="terminal-dot red"></div>
+        <div class="terminal-dot yellow"></div>
+        <div class="terminal-dot green"></div>
+        <span class="terminal-title">agent-personal</span>
+      </div>
+      <div class="terminal-body">
+        <div class="line"><span class="t-dim">$</span> python main.py -g <span class="t-green">"ファイルを分析して"</span></div>
+        <div class="line"><span class="t-cyan">🎯 [ゴール]</span> 新しいゴール: ファイルを分析して</div>
+        <div class="line"><span class="t-dim">🔍 [観察]</span> 環境スキャン...</div>
+        <div class="line"><span class="t-blue">💭 [思考]</span> まず全体像を把握しよう。ファイル構造を見てみる。</div>
+        <div class="line"><span class="t-yellow">📋 [計画]</span> ファイル一覧取得 → 主要ファイルを読む → 分析</div>
+        <div class="line"><span class="t-green">⚡ [実行]</span> file_list: directory="."</div>
+        <div class="line"><span class="t-pink">📝 [振り返り]</span> 構造を把握した。次はmain.pyを読んでみよう。</div>
+        <div class="line"><span class="t-blue">💭 [思考]</span> まだagentフォルダを見ていない。探索してみよう。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 5: FEATURES -->
+  <div class="slide" data-index="4">
+    <h2>できること</h2>
+    <div class="features">
+      <div class="feature-card">
+        <div class="f-icon">📂</div>
+        <div class="f-title">ファイル操作</div>
+        <div class="f-desc">読み込み・作成・検索。<br>コードもドキュメントも自由自在。</div>
+      </div>
+      <div class="feature-card">
+        <div class="f-icon">💻</div>
+        <div class="f-title">コマンド実行</div>
+        <div class="f-desc">シェルコマンドを実行。<br>危険な操作は自動ブロック。</div>
+      </div>
+      <div class="feature-card">
+        <div class="f-icon">🧠</div>
+        <div class="f-title">記憶と学習</div>
+        <div class="f-desc">過去の行動を記憶。<br>同じ失敗を繰り返さない。</div>
+      </div>
+      <div class="feature-card">
+        <div class="f-icon">🎯</div>
+        <div class="f-title">ゴール自動分解</div>
+        <div class="f-desc">大きな目標を細かいタスクに<br>自動で分解して実行。</div>
+      </div>
+      <div class="feature-card">
+        <div class="f-icon">🔍</div>
+        <div class="f-title">好奇心で探索</div>
+        <div class="f-desc">指示がなくても<br>自分で環境を調べて動く。</div>
+      </div>
+      <div class="feature-card">
+        <div class="f-icon">🌐</div>
+        <div class="f-title">Web取得</div>
+        <div class="f-desc">Webページの情報を<br>自分で取りに行ける。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 6: 3 MODES -->
+  <div class="slide" data-index="5">
+    <h2>3つの使い方</h2>
+    <div class="modes">
+      <div class="mode-card">
+        <div class="m-icon">🎯</div>
+        <div class="m-title">自律モード</div>
+        <div class="m-desc">ゴールを1つ渡すだけ。<br>あとは全部おまかせ。</div>
+        <code>python main.py -g "..."</code>
+      </div>
+      <div class="mode-card">
+        <div class="m-icon">💬</div>
+        <div class="m-title">対話モード</div>
+        <div class="m-desc">チャットしながら<br>一緒に作業する。</div>
+        <code>python main.py -i</code>
+      </div>
+      <div class="mode-card">
+        <div class="m-icon">🔍</div>
+        <div class="m-title">探索モード</div>
+        <div class="m-desc">何も言わない。<br>好奇心で動き出す。</div>
+        <code>python main.py</code>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 7: CTA -->
+  <div class="slide" data-index="6">
+    <div class="hero-icon">🚀</div>
+    <h1>さっそく<span class="highlight">動かして</span>みよう</h1>
+    <div class="cta-box">
+      <h2>セットアップは1分</h2>
+      <p>ウィザードが対話形式で<br>すべてガイドします。</p>
+      <div class="cta-code">python setup.py</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Navigation dots -->
+<div class="nav-hint">← →キーまたはクリックでスライド移動</div>
+<div class="nav" id="nav"></div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const nav = document.getElementById('nav');
+  let current = 0;
+
+  // Create nav dots
+  slides.forEach((_, i) => {
+    const dot = document.createElement('div');
+    dot.className = 'nav-dot' + (i === 0 ? ' active' : '');
+    dot.onclick = () => goTo(i);
+    nav.appendChild(dot);
+  });
+
+  function goTo(index) {
+    if (index < 0 || index >= slides.length) return;
+    slides[current].classList.remove('active');
+    nav.children[current].classList.remove('active');
+    current = index;
+    slides[current].classList.add('active');
+    nav.children[current].classList.add('active');
+  }
+
+  // Keyboard navigation
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); goTo(current + 1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); goTo(current - 1); }
+  });
+
+  // Touch swipe
+  let touchStartX = 0;
+  document.addEventListener('touchstart', (e) => { touchStartX = e.touches[0].clientX; });
+  document.addEventListener('touchend', (e) => {
+    const diff = touchStartX - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 50) {
+      diff > 0 ? goTo(current + 1) : goTo(current - 1);
+    }
+  });
+</script>
+
+</body>
+</html>
