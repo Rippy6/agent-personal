@@ -14,7 +14,7 @@ import json
 import os
 import sys
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 
 def load_config() -> dict:
@@ -39,6 +39,8 @@ def create_brain(brain_type: str = "auto", config: dict | None = None):
             brain_type = "claude"
         elif os.environ.get("OPENAI_API_KEY"):
             brain_type = "openai"
+        elif os.environ.get("GOOGLE_API_KEY") or config.get("google_api_key"):
+            brain_type = "gemini"
         else:
             brain_type = "mock"
 
@@ -73,6 +75,16 @@ def create_brain(brain_type: str = "auto", config: dict | None = None):
             from agent.brain.mock import MockBrain
             return MockBrain(), "Mock (OpenAI未インストール)"
 
+    elif brain_type == "gemini":
+        api_key = os.environ.get("GOOGLE_API_KEY") or config.get("google_api_key", "")
+        if not api_key:
+            print("⚠️  GOOGLE_API_KEY が設定されていません。デモモードで起動します。")
+            from agent.brain.mock import MockBrain
+            return MockBrain(), "Mock (APIキー未設定)"
+        from agent.brain.gemini import GeminiBrain
+        model = config.get("gemini_model", "gemini-2.0-flash")
+        return GeminiBrain(api_key=api_key, model=model), f"Gemini {model}"
+
     elif brain_type == "ollama":
         from agent.brain.ollama import OllamaBrain
         model = config.get("ollama_model", "llama3.1")
@@ -106,7 +118,7 @@ def main():
     parser.add_argument("-i", "--interactive", action="store_true", help="対話モード")
     parser.add_argument(
         "-b", "--brain",
-        choices=["auto", "mock", "claude", "openai", "ollama"],
+        choices=["auto", "mock", "claude", "openai", "gemini", "ollama"],
         default="auto",
         help="思考エンジンを指定 (デフォルト: auto = 環境変数から自動検出)",
     )
@@ -117,6 +129,7 @@ def main():
     parser.add_argument("-d", "--delay", type=float, default=1.0, help="ループ間隔（秒）")
     parser.add_argument("--dashboard", action="store_true", help="Web UIダッシュボードを起動")
     parser.add_argument("--port", type=int, default=8080, help="ダッシュボードのポート (デフォルト: 8080)")
+    parser.add_argument("--benchmark", action="store_true", help="Brainの判断精度をベンチマーク")
 
     args = parser.parse_args()
 
@@ -173,6 +186,20 @@ def main():
         print(f"  🌐 ダッシュボード: http://localhost:{args.port}")
     print("=" * 50)
     print()
+
+    if args.benchmark:
+        from agent.benchmark import AgentBenchmark
+        bench = AgentBenchmark(brain)
+        print("🏋️ ベンチマーク実行中...\n")
+        results = bench.run_all()
+        print(f"スコア: {results['score']}% ({results['passed']}/{results['total']})")
+        for r in results["results"]:
+            icon = "✅" if r["passed"] else "❌"
+            print(f"  {icon} {r['name']}: ツール{'○' if r['tool_correct'] else '×'}, "
+                  f"キーワード{r['keywords']}, {r['time']}")
+            if not r["passed"]:
+                print(f"     → {r['detail'][:80]}")
+        return
 
     if args.goal:
         agent.add_goal(args.goal)

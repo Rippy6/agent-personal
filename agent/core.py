@@ -16,8 +16,12 @@ from datetime import datetime
 from agent.brain.base import Brain
 from agent.memory.short_term import ShortTermMemory
 from agent.memory.long_term import LongTermMemory
+from agent.memory.vector import VectorMemory
 from agent.tools.registry import ToolRegistry
 from agent.goal import GoalManager
+from agent.learning import TaskLearner
+from agent.planner import Planner
+from agent.context_optimizer import ContextOptimizer
 from agent.utils.logger import AgentLogger
 
 
@@ -38,7 +42,20 @@ class Agent:
         self.logger = logger or AgentLogger()
         self.short_memory = ShortTermMemory()
         self.long_memory = LongTermMemory(path=memory_path)
+        self.vector_memory = VectorMemory(
+            path=os.path.join(os.path.dirname(memory_path), "vector_memory.json")
+        )
         self.goal_manager = GoalManager(path=goals_path)
+        self.task_learner = TaskLearner(
+            path=os.path.join(os.path.dirname(goals_path), "task_patterns.json")
+        )
+        self.planner = Planner(self.goal_manager)
+        self.context_optimizer = ContextOptimizer(
+            short_memory=self.short_memory,
+            long_memory=self.long_memory,
+            vector_memory=self.vector_memory,
+            goal_manager=self.goal_manager,
+        )
         self.loop_delay = loop_delay
         self.max_iterations = max_iterations  # 0 = 無制限
         self.dashboard = dashboard  # Optional DashboardState for Web UI
@@ -236,15 +253,21 @@ class Agent:
 
     def _think(self, observation: str) -> dict:
         """Phase 2: 観察を基に思考し、判断する。ゴールがなくても自分で考える"""
-        context = {
-            "observation": observation,
-            "goals": [g.to_dict() for g in self.goal_manager.get_active_goals()],
-            "memory_summary": self.short_memory.get_context_summary(),
-            "long_term_hints": self.long_memory.get_all_facts_summary(limit=5),
-            "available_tools": self.tools.list_tools(),
-            "iteration": self._iteration,
-            "stats": self._stats,
-        }
+        # コンテキスト最適化: 重要度に応じて情報を選別
+        context = self.context_optimizer.summarize_for_brain(
+            observation, self._iteration, self._stats
+        )
+        context["available_tools"] = self.tools.list_tools()
+
+        # タスク学習: 過去の成功パターンをヒントとして追加
+        current_goal = self.goal_manager.get_next_goal()
+        if current_goal:
+            suggestions = self.task_learner.suggest(observation, current_goal.description)
+            if suggestions:
+                hint = "過去の成功パターン: " + "; ".join(
+                    f"{s['tool']}({s['reason'][:40]})" for s in suggestions[:2]
+                )
+                context["long_term_hints"] = (context.get("long_term_hints", "") + "\n" + hint).strip()
 
         decision = self.brain.think(context)
 
@@ -263,7 +286,12 @@ class Agent:
         new_goals = decision.get("new_goals", [])
         for goal_desc in new_goals:
             if goal_desc:
-                self.add_goal(goal_desc)
+                goal_id = self.add_goal(goal_desc)
+                # 複雑なゴールは自動でサブタスクに分解
+                if self.planner.should_decompose(goal_id):
+                    subtask_ids = self.planner.decompose(goal_id)
+                    if subtask_ids:
+                        self.logger.plan(f"ゴールを{len(subtask_ids)}サブタスクに分解")
 
         self.short_memory.add("plan", str(plan_steps))
 
@@ -311,16 +339,22 @@ class Agent:
         is_error = "エラー" in result or "error" in result.lower()
         is_empty = not result.strip()
 
+        current_goal = self.goal_manager.get_next_goal()
+        goal_desc = current_goal.description if current_goal else ""
+
         if is_error:
             reflection = f"「{tool_name}」でエラーが発生。アプローチを見直す。"
             self.long_memory.store_pattern(f"「{tool_name}」実行時にエラー: {result[:100]}")
             self._stats["errors"] += 1
+            # タスク学習: 失敗パターンを記録
+            self.task_learner.record(
+                thought, tool_name, action.get("args", {}), result[:100], success=False, goal_description=goal_desc,
+            )
         elif is_empty:
             reflection = f"「{tool_name}」の結果が空。別の方法を試すべきか。"
         else:
             reflection = f"「{tool_name}」は成功。"
             # ゴール完了判定
-            current_goal = self.goal_manager.get_next_goal()
             if current_goal and self._seems_goal_complete(current_goal, result):
                 self.goal_manager.complete_goal(current_goal.id, result[:200])
                 reflection += f" ゴール「{current_goal.description}」を完了。"
@@ -328,6 +362,12 @@ class Agent:
 
             # 成功した結果から学びを記録
             self._learn_from_result(tool_name, result)
+            # タスク学習: 成功パターンを記録
+            self.task_learner.record(
+                thought, tool_name, action.get("args", {}), result[:100], success=True, goal_description=goal_desc,
+            )
+            # ベクトル記憶に蓄積
+            self.vector_memory.store(f"{tool_name}: {result[:200]}", topic=tool_name)
 
         self.logger.reflect(reflection)
         self.short_memory.add("reflect", reflection)
@@ -396,12 +436,15 @@ class Agent:
     def _print_session_summary(self):
         """セッション終了時のサマリー表示"""
         s = self._stats
+        learn = self.task_learner.stats()
         self.logger.system(
             f"セッションサマリー: {s['actions']}アクション, "
             f"{s['goals_completed']}ゴール完了, "
             f"{s['goals_generated']}ゴール生成, "
             f"{s['errors']}エラー, "
-            f"{self._iteration}イテレーション"
+            f"{self._iteration}イテレーション, "
+            f"学習パターン{learn['total_patterns']}件(成功率{learn['success_rate']:.0%}), "
+            f"ベクトル記憶{self.vector_memory.count()}件"
         )
 
     def _check_dashboard_goals(self):

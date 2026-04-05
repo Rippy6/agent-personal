@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent-personal"
-version = "0.2.0"
+version = "0.3.0"
 description = "完全自律AIエージェント — 自分で考え、判断し、行動するもう1人の人間"
 readme = "README.md"
 license = "MIT"
