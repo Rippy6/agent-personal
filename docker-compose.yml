@@ -1,0 +1,21 @@
+version: "3.9"
+
+services:
+  agent:
+    build: .
+    container_name: agent-personal
+    ports:
+      - "8080:8080"
+    volumes:
+      - agent-data:/app/data
+    environment:
+      # 使用するBrainに応じて設定
+      # - ANTHROPIC_API_KEY=sk-ant-...
+      # - OPENAI_API_KEY=sk-...
+      # - GOOGLE_API_KEY=...
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    command: ["--dashboard", "--brain", "mock"]
+
+volumes:
+  agent-data:
