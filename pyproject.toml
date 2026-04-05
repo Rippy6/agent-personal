@@ -1,0 +1,12 @@
+[project]
+name = "agent-personal"
+version = "0.1.0"
+description = "完全自律AIエージェント — 自分で考え、判断し、行動するもう1人の人間"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+claude = ["anthropic>=0.39.0"]
+
+[project.scripts]
+agent = "main:main"
